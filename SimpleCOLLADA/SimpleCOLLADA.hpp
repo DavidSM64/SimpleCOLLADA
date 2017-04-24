@@ -554,9 +554,7 @@ namespace SimpleCOLLADA {
 							ModelNode* model = new ModelNode();
 							xml_attribute<>* matAttr = findAttribute(child, "material");
 							if (EXISTS(matAttr)) {
-								FLAG("A2")
 								model->setMaterial(parse_new_material(materialSymbolTargetMap[string(matAttr->value())]));
-								FLAG("C")
 							}
 							parse_triangles(child, model);
 							modelNodes.push_back(model);
@@ -600,15 +598,11 @@ namespace SimpleCOLLADA {
 						recursivelyFindAllInstanceGeometryNodes(geonodes, lib_visuals[ID_SUBSTR(urlAttr->value())]);
 						if (geonodes.size() > 0) {
 							for (size_t i = 0; i < geonodes.size(); i++) {
-								//ModelNode* newNode = new ModelNode();
-								FLAG("A")
 								parse_geo_material(geonodes[i]);
 								xml_attribute<>* geo_urlAttr = findAttribute(geonodes[i], "url");
 								if (EXISTS(geo_urlAttr)) {
 									parse_geometry(lib_geometries[ID_SUBSTR(geo_urlAttr->value())]);
 								}
-								FLAG("Z")
-								//modelNodes.push_back(newNode);
 							}
 						}
 					}
