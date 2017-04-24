@@ -18,7 +18,8 @@ namespace SimpleCOLLADA {
 	#define XML_NODE_CHILD_FOR_LOOP(node) xml_node<> *child = node->first_node(); \
 		 child; child = child->next_sibling()
 	#define EXISTS(node) node != NULL
-	#define FOUND(i) i != -1
+	#define NOT_FOUND -1
+	#define FOUND(i) i != NOT_FOUND
 	#define FOUND_XYZ(x,y,z) (FOUND(x) && FOUND(y) && FOUND(z))
 	#define FOUND_ST(s, t) (FOUND(s) && FOUND(t))
 	#define MAX_ABC(a,b,c) (a > b ? (a > c ? a : c) : (b > c ? b : c))
@@ -26,6 +27,7 @@ namespace SimpleCOLLADA {
 	#define ID_SUBSTR(str) string(str).substr(1,string(str).length()-1)
 	#define ERROR_MSG(str) cerr << str << endl;
 	#define ERROR_MSG_NO_FIND(str) cerr << "Could not find: \"" << str << "\"" << endl;
+	#define FLAG(str) cout << "FLAG " << str << endl;
 
 	typedef unsigned char u8;
 	typedef unsigned short u16;
@@ -98,7 +100,12 @@ namespace SimpleCOLLADA {
 		inline Vertex* getVertex(int index) { return vertices[index]; }
 		inline TextureCoord* getTextureCoord(int index) { return texuvs[index]; }
 		inline Normal* getNormal(int index) { return normals[index]; }
-		inline VertexColor* getVertexColor(string group, int index) { return vertexColorMap[group][index]; }
+		inline VertexColor* getVertexColor(string group, int index) { 
+			if(vertexColorMap.find(group) != vertexColorMap.end())
+				if(index < vertexColorMap[group].size())
+					return vertexColorMap[group][index];
+			return NULL;
+		}
 		inline Material* getMaterial() { return material; }
 		inline size_t getNumOfTriangles() { return triangles.size(); };
 		inline size_t getNumOfVertices() { return vertices.size(); };
@@ -129,13 +136,12 @@ namespace SimpleCOLLADA {
 
 	class Model {
 	private:
-		//unordered_map<string, xml_node<>*> nodeIdMap;
-
 		unordered_map<string, xml_node<>*> lib_visuals;
 		unordered_map<string, xml_node<>*> lib_geometries;
 		unordered_map<string, xml_node<>*> lib_materials;
 		unordered_map<string, xml_node<>*> lib_effects;
 		unordered_map<string, xml_node<>*> lib_images;
+		unordered_map<string, xml_node<>*> materialSymbolTargetMap;
 
 
 		unordered_map<string, Material*> materialIdMap;
@@ -161,6 +167,8 @@ namespace SimpleCOLLADA {
 		}
 
 		xml_attribute<>* findAttribute(xml_node<>* node, string name) {
+			if (node->first_attribute() == NULL)
+				return NULL;
 			for (XML_ATTRIBUTE_FOR_LOOP(node))
 				if (string(attribute->name()) == name)
 					return attribute;
@@ -213,7 +221,7 @@ namespace SimpleCOLLADA {
 			for (size_t i = 0; i < params.size(); i++)
 				if (params[i].name == paramName) 
 					return i;
-			return -1;
+			return NOT_FOUND;
 		}
 
 		Mesh_source parse_source(xml_node<> *source) {
@@ -428,25 +436,6 @@ namespace SimpleCOLLADA {
 			return false;
 		}
 
-		void parse_geometry(xml_node<> *geometry, ModelNode* model) {
-			xml_node<> *mesh = geometry->first_node("mesh");
-			if (EXISTS(mesh)) {
-				xml_node<>* triangles = mesh->first_node("triangles"); // Sketchup's approach
-				xml_node<>* polylist  = mesh->first_node("polylist"); // Blender's approach
-				if (EXISTS(triangles)) {
-					parse_triangles(triangles, model);
-				} else if (EXISTS(polylist)) {
-					if (checkPolylistIsTriangulated(polylist)) {
-						parse_triangles(polylist, model);
-					} else {
-						ERROR_MSG("Error: Mesh is not triangulated!");
-					}
-				}
-			} else {
-				ERROR_MSG_NO_FIND("mesh");
-			}
-		}
-
 		void recursivelyFindAllInstanceGeometryNodes(vector<xml_node<>*>& nodes, xml_node<> *current) {
 			if (string(current->name()) == "instance_geometry")
 				nodes.push_back(current);
@@ -460,10 +449,28 @@ namespace SimpleCOLLADA {
 					recursivelyFindAllInstanceGeometryNodes(nodes, child);
 		}
 
-		void parse_new_material(xml_node<> *mat_node, Material* mat) {
+		int doesMaterialNameAlreadyExist(string name) {
+			for (size_t i = 0; i < materials.size(); i++) {
+				if (materials[i]->getName() == name)
+					return (int)i;
+			}
+			return NOT_FOUND;
+		}
+
+		Material* parse_new_material(xml_node<> *mat_node) {
+			if (!EXISTS(mat_node)) {
+				ERROR_MSG("Material node is null!")
+				return NULL;
+			}
+			Material* mat = new Material;
 			xml_attribute<>* nameAttr = findAttribute(mat_node, "name");
 			if (EXISTS(nameAttr))
 				mat->setName(string(nameAttr->value()));
+			int findMaterial = doesMaterialNameAlreadyExist(mat->getName());
+			if (FOUND(findMaterial)) {
+				delete mat;
+				return materials[findMaterial];
+			}
 			xml_node<> *instance_effect = mat_node->first_node("instance_effect");
 			if (EXISTS(instance_effect)) {
 				xml_attribute<>* urlAttr = findAttribute(instance_effect, "url");
@@ -525,37 +532,62 @@ namespace SimpleCOLLADA {
 					} else ERROR_MSG_NO_FIND("effect");
 				} else ERROR_MSG_NO_FIND("urlAttr");
 			} else ERROR_MSG_NO_FIND("instance_effect");
+			materials.push_back(mat);
+			return mat;
 		}
 
-		Material* parse_geo_material(xml_node<> *geonode) {
+		void parse_geometry(xml_node<> *geometry) {
+			xml_node<> *mesh = geometry->first_node("mesh");
+			if (EXISTS(mesh)) {
+				for (XML_NODE_CHILD_FOR_LOOP(mesh)) {
+					if (string(child->name()) == "triangles") { // Sketchup's approach
+						ModelNode* model = new ModelNode();
+						xml_attribute<>* matAttr = findAttribute(child, "material");
+						if (EXISTS(matAttr)) {
+							model->setMaterial(parse_new_material(materialSymbolTargetMap[string(matAttr->value())]));
+						}
+						parse_triangles(child, model);
+						modelNodes.push_back(model);
+					}
+					else if (string(child->name()) == "polylist") { // Blender's approach
+						if (checkPolylistIsTriangulated(child)) {
+							ModelNode* model = new ModelNode();
+							xml_attribute<>* matAttr = findAttribute(child, "material");
+							if (EXISTS(matAttr)) {
+								FLAG("A2")
+								model->setMaterial(parse_new_material(materialSymbolTargetMap[string(matAttr->value())]));
+								FLAG("C")
+							}
+							parse_triangles(child, model);
+							modelNodes.push_back(model);
+						}
+						else {
+							ERROR_MSG("Error: Mesh is not triangulated!");
+						}
+					}
+				}
+			}
+			else {
+				ERROR_MSG_NO_FIND("mesh");
+			}
+		}
+		
+		void parse_geo_material(xml_node<> *geonode) {
 			xml_node<> *bind_material = geonode->first_node("bind_material");
 			if (EXISTS(bind_material)) {
 				xml_node<> *technique_common = bind_material->first_node("technique_common");
 				if (EXISTS(technique_common)) {
-					xml_node<> *instance_material = technique_common->first_node("instance_material");
-					if (EXISTS(instance_material)) {
-						xml_attribute<>* mat_tarAttr = findAttribute(instance_material, "target");
-						if (EXISTS(mat_tarAttr)) {
-							string id = string(ID_SUBSTR(mat_tarAttr->value()));
-							unordered_map<string, Material*>::const_iterator got = materialIdMap.find(id);
-							if (got == materialIdMap.end()) {
-								//cout << "New Material! id='" << id << "'" << endl;
-								Material* newMat = new Material;
-								parse_new_material(lib_materials[id], newMat);
-								materials.push_back(newMat);
-								materialIdMap[id] = newMat;
-								return newMat;
-							}
-							else {
-								//cout << "Material Exists!" << endl;
-								return got->second;
+					for (XML_NODE_CHILD_FOR_LOOP(technique_common)) {
+						if (string(child->name()) == "instance_material") {
+							xml_attribute<>* mat_tarAttr = findAttribute(child, "target");
+							xml_attribute<>* mat_symAttr = findAttribute(child, "symbol");
+							if (EXISTS(mat_tarAttr) && EXISTS(mat_symAttr)) {
+								materialSymbolTargetMap[string(mat_symAttr->value())] = lib_materials[ID_SUBSTR(mat_tarAttr->value())];
 							}
 						}
-					} else ERROR_MSG_NO_FIND("instance_material");
+					}
 				} else ERROR_MSG_NO_FIND("technique_common");
 			} else ERROR_MSG_NO_FIND("bind_material");
-
-			return NULL;
 		}
 
 		void parse_scene(xml_node<> *scene) {
@@ -568,13 +600,15 @@ namespace SimpleCOLLADA {
 						recursivelyFindAllInstanceGeometryNodes(geonodes, lib_visuals[ID_SUBSTR(urlAttr->value())]);
 						if (geonodes.size() > 0) {
 							for (size_t i = 0; i < geonodes.size(); i++) {
-								ModelNode* newNode = new ModelNode();
-								newNode->setMaterial(parse_geo_material(geonodes[i]));
+								//ModelNode* newNode = new ModelNode();
+								FLAG("A")
+								parse_geo_material(geonodes[i]);
 								xml_attribute<>* geo_urlAttr = findAttribute(geonodes[i], "url");
 								if (EXISTS(geo_urlAttr)) {
-									parse_geometry(lib_geometries[ID_SUBSTR(geo_urlAttr->value())], newNode);
+									parse_geometry(lib_geometries[ID_SUBSTR(geo_urlAttr->value())]);
 								}
-								modelNodes.push_back(newNode);
+								FLAG("Z")
+								//modelNodes.push_back(newNode);
 							}
 						}
 					}
