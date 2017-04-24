@@ -14,7 +14,7 @@ pointer to the material being used. Vertex colors are stored as an <unordered_ma
 using the method getVertexColorGroupNames(), which will return a vector of strings. The reason I created this system is because blender does not natively
 support vertex alphas, so my work around is to have a second vertex color group that represents the vertex alphas.
 
-A material just simply contains the material's name, filename, diffuse color, and opacity(aka: transparency).
+A material just simply contains the material's name, filename, diffuse color(RGBA), and transparency(ranges from 0.0 to 1.0).
 
 The upAxis variable is just an enum that tells you which axis is upward. The enum values are: X_UP, Y_UP, Z_UP, INVALID, and NO_FIND.
 
