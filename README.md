@@ -1,4 +1,4 @@
-# SimpleCOLLADA v0.1
+# SimpleCOLLADA v0.1.1
 A simple C++ COLLADA file parser that was created for Super Mario 64 custom levels. SimpleCOLLADA will look through a COLLADA (.dae) file and collect all the vertices, indices, normals, texture coordiates, vertex colors, and materials, and put them into a single object for easy access.
 
 <img src="https://i.imgur.com/x9DNEZX.png" width="500" height="340">
